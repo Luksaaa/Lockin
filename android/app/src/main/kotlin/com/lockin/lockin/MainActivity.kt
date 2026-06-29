@@ -290,8 +290,8 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun maxLimitMinutes(windowMs: Long): Int {
-        val tenPercent = ((windowMs / 60000L) * 10 / 100).toInt()
-        return tenPercent.coerceAtLeast(Constants.MIN_USAGE_LIMIT_MINUTES)
+        val fortyPercent = ((windowMs / 60000L) * 40 / 100).toInt()
+        return fortyPercent.coerceAtLeast(Constants.MIN_USAGE_LIMIT_MINUTES)
     }
 
     private fun isUsageAccessGranted(): Boolean {

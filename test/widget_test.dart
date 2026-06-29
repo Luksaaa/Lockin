@@ -40,7 +40,7 @@ void main() {
 
     expect(find.text('40 min'), findsOneWidget);
     expect(find.text('4 h'), findsOneWidget);
-    expect(find.text('raspon 30 min-30 min'), findsOneWidget);
+    expect(find.text('raspon 5 min-1h 36m'), findsOneWidget);
     expect(find.text('STATUS: UGASENO'), findsOneWidget);
     expect(find.text('Dodaj aplikacije'), findsOneWidget);
   });

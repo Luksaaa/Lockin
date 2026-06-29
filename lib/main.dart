@@ -177,11 +177,11 @@ class _LockinHomePageState extends State<LockinHomePage> {
     }
   }
 
-  int get _minLimitMinutes => _isTestMode ? 1 : 30;
+  int get _minLimitMinutes => _isTestMode ? 1 : 5;
 
   int get _maxLimitMinutes {
     if (_isTestMode) return 60;
-    return (((_usageWindowMs / 60000) * 0.1).floor()).clamp(
+    return (((_usageWindowMs / 60000) * 0.4).floor()).clamp(
       _minLimitMinutes,
       24 * 60,
     );

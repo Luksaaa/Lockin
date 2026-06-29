@@ -15,6 +15,6 @@ object Constants {
     const val DEFAULT_USAGE_LIMIT_MS = 40 * 60 * 1000L
     const val MIN_USAGE_WINDOW_HOURS = 3
     const val MAX_USAGE_WINDOW_HOURS = 24
-    const val MIN_USAGE_LIMIT_MINUTES = 30
+    const val MIN_USAGE_LIMIT_MINUTES = 5
     const val BLOCK_DURATION_MS = 30 * 60 * 1000L
 }
