@@ -42,6 +42,9 @@ class MainActivity : FlutterActivity() {
         if (!prefs.contains(KEY_BLOCKED_PACKAGES)) {
             prefs.edit { putStringSet(KEY_BLOCKED_PACKAGES, emptySet()) }
         }
+        if (!prefs.contains(KEY_USAGE_LIMIT_MS)) {
+            prefs.edit { putLong(KEY_USAGE_LIMIT_MS, Constants.DEFAULT_USAGE_LIMIT_MS) }
+        }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -52,6 +55,7 @@ class MainActivity : FlutterActivity() {
                 "getInstalledApps" -> result.success(getInstalledApps())
                 "toggleBlockedApp" -> toggleBlockedApp(call, result)
                 "toggleBlocking" -> toggleBlocking(result)
+                "setUsageLimit" -> setUsageLimit(call, result)
                 else -> result.notImplemented()
             }
         }
@@ -72,6 +76,8 @@ class MainActivity : FlutterActivity() {
             "isBlockingActive" to prefs.getBoolean(KEY_BLOCKING_ACTIVE, false),
             "blockedPackages" to blockedPackages.toList(),
             "usageByPackage" to usageByPackage,
+            "usageLimitMs" to prefs.getLong(KEY_USAGE_LIMIT_MS, Constants.DEFAULT_USAGE_LIMIT_MS),
+            "usageWindowMs" to Constants.USAGE_WINDOW_MS,
             "unlockText" to getUnlockText(prefs.getLong(KEY_ACTIVATION_ELAPSED, 0L)),
             "permissions" to mapOf(
                 "usageAccess" to isUsageAccessGranted(),
@@ -118,6 +124,23 @@ class MainActivity : FlutterActivity() {
         }
 
         prefs.edit { putStringSet(KEY_BLOCKED_PACKAGES, blockedPackages) }
+        result.success(mapOf("message" to ""))
+    }
+
+    private fun setUsageLimit(call: MethodCall, result: MethodChannel.Result) {
+        val minutes = call.argument<Int>("minutes")
+        if (minutes == null || minutes !in 5..240) {
+            result.error("bad_limit", "Limit mora biti izmedu 5 i 240 minuta.", null)
+            return
+        }
+
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(KEY_BLOCKING_ACTIVE, false)) {
+            result.success(mapOf("message" to "Limit mozes promijeniti kada blokiranje nije aktivno."))
+            return
+        }
+
+        prefs.edit { putLong(KEY_USAGE_LIMIT_MS, minutes * 60 * 1000L) }
         result.success(mapOf("message" to ""))
     }
 
@@ -252,5 +275,6 @@ class MainActivity : FlutterActivity() {
         const val KEY_BLOCKED_PACKAGES = "blocked_packages"
         const val KEY_BLOCKING_ACTIVE = "is_blocking_active"
         const val KEY_ACTIVATION_ELAPSED = "block_activation_elapsed"
+        const val KEY_USAGE_LIMIT_MS = "usage_limit_ms"
     }
 }

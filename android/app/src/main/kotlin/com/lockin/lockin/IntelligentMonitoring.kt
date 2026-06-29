@@ -14,6 +14,8 @@ class IntelligentMonitoring(private val context: Context) {
     }
 
     fun isOverLimit(packageName: String): Boolean {
-        return getUsageTime(packageName) > Constants.USAGE_LIMIT_MS
+        val prefs = context.getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
+        val limitMs = prefs.getLong(MainActivity.KEY_USAGE_LIMIT_MS, Constants.DEFAULT_USAGE_LIMIT_MS)
+        return getUsageTime(packageName) > limitMs
     }
 }

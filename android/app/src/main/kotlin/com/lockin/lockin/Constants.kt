@@ -11,6 +11,6 @@ object Constants {
     val DEFAULT_APPS = listOf(INSTAGRAM_PKG, WHATSAPP_PKG, SNAPCHAT_PKG)
 
     const val USAGE_WINDOW_MS = 4 * 60 * 60 * 1000L
-    const val USAGE_LIMIT_MS = 40 * 60 * 1000L
+    const val DEFAULT_USAGE_LIMIT_MS = 40 * 60 * 1000L
     const val BLOCK_DURATION_MS = 30 * 60 * 1000L
 }

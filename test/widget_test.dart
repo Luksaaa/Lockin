@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lockin/main.dart';
@@ -17,6 +16,8 @@ void main() {
                 'isBlockingActive': false,
                 'blockedPackages': <String>[],
                 'usageByPackage': <String, int>{},
+                'usageLimitMs': 40 * 60 * 1000,
+                'usageWindowMs': 4 * 60 * 60 * 1000,
                 'unlockText': '',
               };
             case 'getInstalledApps':
@@ -36,8 +37,9 @@ void main() {
     await tester.pumpWidget(const LockinApp());
     await tester.pump();
 
-    expect(find.text('Lockin'), findsOneWidget);
+    expect(find.text('40 min'), findsOneWidget);
+    expect(find.text('unutar 4 sata'), findsOneWidget);
     expect(find.text('STATUS: UGASENO'), findsOneWidget);
-    expect(find.byIcon(Icons.add), findsOneWidget);
+    expect(find.text('Dodaj aplikacije'), findsOneWidget);
   });
 }

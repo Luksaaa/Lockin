@@ -39,9 +39,10 @@ class LockinHomePage extends StatefulWidget {
 
 class _LockinHomePageState extends State<LockinHomePage> {
   static const _channel = MethodChannel('lockin/app_blocker');
-  static const _usageLimitMs = 40 * 60 * 1000;
   bool _loading = true;
   bool _blockingActive = false;
+  int _usageLimitMs = 40 * 60 * 1000;
+  int _usageWindowMs = 4 * 60 * 60 * 1000;
   String _unlockText = '';
   List<AppInfo> _installedApps = const [];
   Set<String> _blockedPackages = {};
@@ -84,6 +85,10 @@ class _LockinHomePageState extends State<LockinHomePage> {
       setState(() {
         _loading = false;
         _blockingActive = state?['isBlockingActive'] == true;
+        _usageLimitMs =
+            (state?['usageLimitMs'] as num?)?.toInt() ?? 40 * 60 * 1000;
+        _usageWindowMs =
+            (state?['usageWindowMs'] as num?)?.toInt() ?? 4 * 60 * 60 * 1000;
         _unlockText = state?['unlockText']?.toString() ?? '';
         _blockedPackages = blocked;
         _usageByPackage = usage;
@@ -129,6 +134,23 @@ class _LockinHomePageState extends State<LockinHomePage> {
       await _loadState();
     } on PlatformException catch (error) {
       _showMessage(error.message ?? 'Aplikacija nije promijenjena.');
+    }
+  }
+
+  Future<void> _setUsageLimitMinutes(int minutes) async {
+    final nextMinutes = minutes.clamp(5, 240);
+    try {
+      final result = await _channel.invokeMapMethod<String, dynamic>(
+        'setUsageLimit',
+        {'minutes': nextMinutes},
+      );
+      final message = result?['message']?.toString();
+      if (message != null && message.isNotEmpty) {
+        _showMessage(message);
+      }
+      await _loadState();
+    } on PlatformException catch (error) {
+      _showMessage(error.message ?? 'Limit nije promijenjen.');
     }
   }
 
@@ -236,6 +258,8 @@ class _LockinHomePageState extends State<LockinHomePage> {
     final selectedApps = _installedApps
         .where((app) => _blockedPackages.contains(app.packageName))
         .toList();
+    final usageLimitMinutes = (_usageLimitMs / 60000).round();
+    final usageWindowHours = (_usageWindowMs / 3600000).round();
 
     return Scaffold(
       body: SafeArea(
@@ -248,25 +272,15 @@ class _LockinHomePageState extends State<LockinHomePage> {
                   children: [
                     Row(
                       children: [
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Lockin',
-                                style: TextStyle(
-                                  fontSize: 30,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              SizedBox(height: 4),
-                              Text(
-                                '40 min unutar 4 sata',
-                                style: TextStyle(color: Colors.white54),
-                              ),
-                            ],
+                        Expanded(
+                          child: TimeLimitControl(
+                            minutes: usageLimitMinutes,
+                            windowHours: usageWindowHours,
+                            enabled: !_blockingActive,
+                            onChanged: _setUsageLimitMinutes,
                           ),
                         ),
+                        const SizedBox(width: 12),
                         IconButton.filledTonal(
                           tooltip: 'Osvjezi',
                           onPressed: _loadState,
@@ -398,6 +412,79 @@ class AppIcon extends StatelessWidget {
         child: bytes == null
             ? const Icon(Icons.apps)
             : Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true),
+      ),
+    );
+  }
+}
+
+class TimeLimitControl extends StatelessWidget {
+  const TimeLimitControl({
+    required this.minutes,
+    required this.windowHours,
+    required this.enabled,
+    required this.onChanged,
+    super.key,
+  });
+
+  final int minutes;
+  final int windowHours;
+  final bool enabled;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final foreground = enabled ? Colors.white : Colors.white38;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF10151D),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            tooltip: 'Smanji limit',
+            onPressed: enabled ? () => onChanged(minutes - 5) : null,
+            icon: const Icon(Icons.remove),
+            style: IconButton.styleFrom(
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              minimumSize: const Size(36, 36),
+            ),
+          ),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '$minutes min',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: foreground,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'unutar $windowHours sata',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Povecaj limit',
+            onPressed: enabled ? () => onChanged(minutes + 5) : null,
+            icon: const Icon(Icons.add),
+            style: IconButton.styleFrom(
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              minimumSize: const Size(36, 36),
+            ),
+          ),
+        ],
       ),
     );
   }
