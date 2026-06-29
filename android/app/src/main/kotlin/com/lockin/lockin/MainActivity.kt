@@ -59,6 +59,7 @@ class MainActivity : FlutterActivity() {
                 "toggleBlockedApp" -> toggleBlockedApp(call, result)
                 "toggleBlocking" -> toggleBlocking(result)
                 "setUsageLimit" -> setUsageLimit(call, result)
+                "setUsageWindowHours" -> setUsageWindowHours(call, result)
                 "setTestMode" -> setTestMode(call, result)
                 else -> result.notImplemented()
             }
@@ -80,7 +81,7 @@ class MainActivity : FlutterActivity() {
             "isBlockingActive" to prefs.getBoolean(KEY_BLOCKING_ACTIVE, false),
             "blockedPackages" to blockedPackages.toList(),
             "usageByPackage" to usageByPackage,
-            "usageLimitMs" to prefs.getLong(KEY_USAGE_LIMIT_MS, Constants.DEFAULT_USAGE_LIMIT_MS),
+            "usageLimitMs" to getClampedLimitMs(prefs),
             "usageWindowMs" to prefs.getLong(KEY_USAGE_WINDOW_MS, Constants.DEFAULT_USAGE_WINDOW_MS),
             "isTestMode" to (prefs.getLong(KEY_USAGE_WINDOW_MS, Constants.DEFAULT_USAGE_WINDOW_MS) == Constants.TEST_USAGE_WINDOW_MS),
             "unlockText" to getUnlockText(prefs.getLong(KEY_ACTIVATION_ELAPSED, 0L)),
@@ -140,29 +141,61 @@ class MainActivity : FlutterActivity() {
             return
         }
 
+        val nextWindowMs = if (enabled) Constants.TEST_USAGE_WINDOW_MS else Constants.DEFAULT_USAGE_WINDOW_MS
         prefs.edit {
             putLong(
                 KEY_USAGE_WINDOW_MS,
-                if (enabled) Constants.TEST_USAGE_WINDOW_MS else Constants.DEFAULT_USAGE_WINDOW_MS
+                nextWindowMs
             )
+            if (!enabled) {
+                putLong(KEY_USAGE_LIMIT_MS, clampLimitMs(prefs.getLong(KEY_USAGE_LIMIT_MS, Constants.DEFAULT_USAGE_LIMIT_MS), nextWindowMs))
+            }
         }
         result.success(mapOf("message" to if (enabled) "Testni nacin: prozor je 1 minuta." else "Normalni nacin: prozor je 4 sata."))
     }
 
     private fun setUsageLimit(call: MethodCall, result: MethodChannel.Result) {
         val minutes = call.argument<Int>("minutes")
-        if (minutes == null || minutes !in 5..240) {
-            result.error("bad_limit", "Limit mora biti izmedu 5 i 240 minuta.", null)
-            return
-        }
-
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         if (prefs.getBoolean(KEY_BLOCKING_ACTIVE, false)) {
             result.success(mapOf("message" to "Limit mozes promijeniti kada blokiranje nije aktivno."))
             return
         }
+        if (minutes == null) {
+            result.error("bad_limit", "Nedostaje limit u minutama.", null)
+            return
+        }
+
+        val windowMs = prefs.getLong(KEY_USAGE_WINDOW_MS, Constants.DEFAULT_USAGE_WINDOW_MS)
+        val isTestMode = windowMs == Constants.TEST_USAGE_WINDOW_MS
+        val minMinutes = if (isTestMode) 1 else Constants.MIN_USAGE_LIMIT_MINUTES
+        val maxMinutes = if (isTestMode) 60 else maxLimitMinutes(windowMs)
+        if (minutes !in minMinutes..maxMinutes) {
+            result.error("bad_limit", "Limit mora biti izmedu $minMinutes i $maxMinutes minuta.", null)
+            return
+        }
 
         prefs.edit { putLong(KEY_USAGE_LIMIT_MS, minutes * 60 * 1000L) }
+        result.success(mapOf("message" to ""))
+    }
+
+    private fun setUsageWindowHours(call: MethodCall, result: MethodChannel.Result) {
+        val hours = call.argument<Int>("hours")
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(KEY_BLOCKING_ACTIVE, false)) {
+            result.success(mapOf("message" to "Sate mozes promijeniti kada blokiranje nije aktivno."))
+            return
+        }
+        if (hours == null || hours !in Constants.MIN_USAGE_WINDOW_HOURS..Constants.MAX_USAGE_WINDOW_HOURS) {
+            result.error("bad_window", "Prozor mora biti izmedu 3 i 24 sata.", null)
+            return
+        }
+
+        val windowMs = hours * 60 * 60 * 1000L
+        prefs.edit {
+            putLong(KEY_USAGE_WINDOW_MS, windowMs)
+            putLong(KEY_USAGE_LIMIT_MS, clampLimitMs(prefs.getLong(KEY_USAGE_LIMIT_MS, Constants.DEFAULT_USAGE_LIMIT_MS), windowMs))
+        }
         result.success(mapOf("message" to ""))
     }
 
@@ -242,6 +275,23 @@ class MainActivity : FlutterActivity() {
         val hours = TimeUnit.MILLISECONDS.toHours(remaining)
         val minutes = TimeUnit.MILLISECONDS.toMinutes(remaining) % 60
         return String.format("%02dh %02dm", hours, minutes)
+    }
+
+    private fun getClampedLimitMs(prefs: android.content.SharedPreferences): Long {
+        val windowMs = prefs.getLong(KEY_USAGE_WINDOW_MS, Constants.DEFAULT_USAGE_WINDOW_MS)
+        return clampLimitMs(prefs.getLong(KEY_USAGE_LIMIT_MS, Constants.DEFAULT_USAGE_LIMIT_MS), windowMs)
+    }
+
+    private fun clampLimitMs(limitMs: Long, windowMs: Long): Long {
+        if (windowMs == Constants.TEST_USAGE_WINDOW_MS) return limitMs.coerceIn(60 * 1000L, 60 * 60 * 1000L)
+        val minMs = Constants.MIN_USAGE_LIMIT_MINUTES * 60 * 1000L
+        val maxMs = maxLimitMinutes(windowMs) * 60 * 1000L
+        return limitMs.coerceIn(minMs, maxMs)
+    }
+
+    private fun maxLimitMinutes(windowMs: Long): Int {
+        val tenPercent = ((windowMs / 60000L) * 10 / 100).toInt()
+        return tenPercent.coerceAtLeast(Constants.MIN_USAGE_LIMIT_MINUTES)
     }
 
     private fun isUsageAccessGranted(): Boolean {

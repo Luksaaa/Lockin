@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'duration_format.dart';
+
 void main() {
   runApp(const LockinApp());
 }
@@ -142,7 +144,7 @@ class _LockinHomePageState extends State<LockinHomePage> {
   }
 
   Future<void> _setUsageLimitMinutes(int minutes) async {
-    final nextMinutes = minutes.clamp(_isTestMode ? 1 : 5, 240);
+    final nextMinutes = minutes.clamp(_minLimitMinutes, _maxLimitMinutes);
     try {
       final result = await _channel.invokeMapMethod<String, dynamic>(
         'setUsageLimit',
@@ -156,6 +158,33 @@ class _LockinHomePageState extends State<LockinHomePage> {
     } on PlatformException catch (error) {
       _showMessage(error.message ?? 'Limit nije promijenjen.');
     }
+  }
+
+  Future<void> _setUsageWindowHours(int hours) async {
+    final nextHours = hours.clamp(3, 24);
+    try {
+      final result = await _channel.invokeMapMethod<String, dynamic>(
+        'setUsageWindowHours',
+        {'hours': nextHours},
+      );
+      final message = result?['message']?.toString();
+      if (message != null && message.isNotEmpty) {
+        _showMessage(message);
+      }
+      await _loadState();
+    } on PlatformException catch (error) {
+      _showMessage(error.message ?? 'Sati nisu promijenjeni.');
+    }
+  }
+
+  int get _minLimitMinutes => _isTestMode ? 1 : 30;
+
+  int get _maxLimitMinutes {
+    if (_isTestMode) return 60;
+    return (((_usageWindowMs / 60000) * 0.1).floor()).clamp(
+      _minLimitMinutes,
+      24 * 60,
+    );
   }
 
   Future<void> _setTestMode(bool enabled) async {
@@ -325,9 +354,7 @@ class _LockinHomePageState extends State<LockinHomePage> {
         .where((app) => _blockedPackages.contains(app.packageName))
         .toList();
     final usageLimitMinutes = (_usageLimitMs / 60000).round();
-    final windowLabel = _usageWindowMs <= 60000
-        ? 'test: 1 minuta'
-        : 'unutar ${(_usageWindowMs / 3600000).round()} sata';
+    final usageWindowHours = (_usageWindowMs / 3600000).round().clamp(3, 24);
 
     return Scaffold(
       body: SafeArea(
@@ -467,10 +494,13 @@ class _LockinHomePageState extends State<LockinHomePage> {
                               const Spacer(),
                               TimeLimitControl(
                                 minutes: usageLimitMinutes,
-                                windowLabel: windowLabel,
+                                hours: usageWindowHours,
+                                minMinutes: _minLimitMinutes,
+                                maxMinutes: _maxLimitMinutes,
                                 enabled: !_blockingActive,
                                 testMode: _isTestMode,
-                                onChanged: _setUsageLimitMinutes,
+                                onMinutesChanged: _setUsageLimitMinutes,
+                                onHoursChanged: _setUsageWindowHours,
                                 onTestModeChanged: _setTestMode,
                               ),
                               const SizedBox(height: 12),
@@ -523,19 +553,25 @@ class AppIcon extends StatelessWidget {
 class TimeLimitControl extends StatelessWidget {
   const TimeLimitControl({
     required this.minutes,
-    required this.windowLabel,
+    required this.hours,
+    required this.minMinutes,
+    required this.maxMinutes,
     required this.enabled,
     required this.testMode,
-    required this.onChanged,
+    required this.onMinutesChanged,
+    required this.onHoursChanged,
     required this.onTestModeChanged,
     super.key,
   });
 
   final int minutes;
-  final String windowLabel;
+  final int hours;
+  final int minMinutes;
+  final int maxMinutes;
   final bool enabled;
   final bool testMode;
-  final ValueChanged<int> onChanged;
+  final ValueChanged<int> onMinutesChanged;
+  final ValueChanged<int> onHoursChanged;
   final ValueChanged<bool> onTestModeChanged;
 
   @override
@@ -551,48 +587,26 @@ class TimeLimitControl extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            children: [
-              _LimitIconButton(
-                tooltip: 'Smanji limit',
-                icon: Icons.remove,
-                onPressed: enabled
-                    ? () => onChanged(minutes - (testMode ? 1 : 5))
-                    : null,
-              ),
-              Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '$minutes min',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: foreground,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      windowLabel,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white54,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              _LimitIconButton(
-                tooltip: 'Povecaj limit',
-                icon: Icons.add,
-                onPressed: enabled
-                    ? () => onChanged(minutes + (testMode ? 1 : 5))
-                    : null,
-              ),
-            ],
+          StepperRow(
+            label: 'Minute',
+            value: '$minutes min',
+            detail: testMode
+                ? 'test raspon 1-60 min'
+                : 'raspon ${formatDurationLabel(minMinutes)}-${formatDurationLabel(maxMinutes)}',
+            enabled: enabled,
+            foreground: foreground,
+            onDecrease: () => onMinutesChanged(minutes - (testMode ? 1 : 5)),
+            onIncrease: () => onMinutesChanged(minutes + (testMode ? 1 : 5)),
+          ),
+          const Divider(height: 18, color: Color(0x336D5A32)),
+          StepperRow(
+            label: 'Sati',
+            value: testMode ? '1 min' : '$hours h',
+            detail: testMode ? 'testni prozor' : 'prozor koristenja',
+            enabled: enabled && !testMode,
+            foreground: foreground,
+            onDecrease: () => onHoursChanged(hours - 1),
+            onIncrease: () => onHoursChanged(hours + 1),
           ),
           const SizedBox(height: 8),
           Row(
@@ -613,6 +627,67 @@ class TimeLimitControl extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class StepperRow extends StatelessWidget {
+  const StepperRow({
+    required this.label,
+    required this.value,
+    required this.detail,
+    required this.enabled,
+    required this.foreground,
+    required this.onDecrease,
+    required this.onIncrease,
+    super.key,
+  });
+
+  final String label;
+  final String value;
+  final String detail;
+  final bool enabled;
+  final Color foreground;
+  final VoidCallback onDecrease;
+  final VoidCallback onIncrease;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        _LimitIconButton(
+          tooltip: 'Smanji $label',
+          icon: Icons.remove,
+          onPressed: enabled ? onDecrease : null,
+        ),
+        Expanded(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                value,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: foreground,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                detail,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white54, fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+        _LimitIconButton(
+          tooltip: 'Povecaj $label',
+          icon: Icons.add,
+          onPressed: enabled ? onIncrease : null,
+        ),
+      ],
     );
   }
 }
