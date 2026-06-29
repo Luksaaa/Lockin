@@ -114,14 +114,8 @@ class MainActivity : FlutterActivity() {
         }
 
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val isBlockingActive = prefs.getBoolean(KEY_BLOCKING_ACTIVE, false)
         val blockedPackages = (prefs.getStringSet(KEY_BLOCKED_PACKAGES, emptySet()) ?: emptySet()).toMutableSet()
         val isSelected = blockedPackages.contains(packageName)
-
-        if (isBlockingActive && isSelected) {
-            result.success(mapOf("message" to "Nije moguce ukloniti dok je blokiranje aktivno."))
-            return
-        }
 
         if (isSelected) {
             blockedPackages.remove(packageName)

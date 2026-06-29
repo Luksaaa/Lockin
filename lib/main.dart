@@ -127,7 +127,7 @@ class _LockinHomePageState extends State<LockinHomePage> {
     }
   }
 
-  Future<void> _toggleApp(AppInfo app) async {
+  Future<bool> _toggleApp(AppInfo app) async {
     try {
       final result = await _channel.invokeMapMethod<String, dynamic>(
         'toggleBlockedApp',
@@ -138,8 +138,10 @@ class _LockinHomePageState extends State<LockinHomePage> {
         _showMessage(message);
       }
       await _loadState();
+      return true;
     } on PlatformException catch (error) {
       _showMessage(error.message ?? 'Aplikacija nije promijenjena.');
+      return false;
     }
   }
 
@@ -257,6 +259,7 @@ class _LockinHomePageState extends State<LockinHomePage> {
   }
 
   void _showAppPicker() {
+    var pickerSelectedPackages = Set<String>.from(_blockedPackages);
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -268,79 +271,101 @@ class _LockinHomePageState extends State<LockinHomePage> {
           minChildSize: 0.45,
           maxChildSize: 0.92,
           builder: (context, controller) {
-            return Column(
-              children: [
-                const SizedBox(height: 12),
-                Container(
-                  width: 44,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.white24,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 18, 12, 10),
-                  child: Row(
-                    children: [
-                      const Expanded(
-                        child: Text(
-                          'Odaberi aplikacije',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
+            return StatefulBuilder(
+              builder: (context, setPickerState) {
+                return Column(
+                  children: [
+                    const SizedBox(height: 12),
+                    Container(
+                      width: 44,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(999),
                       ),
-                      IconButton(
-                        tooltip: 'Zatvori',
-                        onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.close),
-                      ),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: ListView.separated(
-                    controller: controller,
-                    itemCount: _installedApps.length,
-                    separatorBuilder: (context, index) =>
-                        const Divider(height: 1, color: Colors.white10),
-                    itemBuilder: (context, index) {
-                      final app = _installedApps[index];
-                      final selected = _blockedPackages.contains(
-                        app.packageName,
-                      );
-                      return ListTile(
-                        leading: AppIcon(app: app, size: 42),
-                        title: Text(
-                          app.label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Text(
-                          app.packageName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white38,
-                            fontSize: 12,
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 18, 12, 10),
+                      child: Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Odaberi aplikacije',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                           ),
-                        ),
-                        trailing: Icon(
-                          selected
-                              ? Icons.check_circle
-                              : Icons.radio_button_unchecked,
-                          color: selected
-                              ? const Color(0xFF22C55E)
-                              : Colors.white30,
-                        ),
-                        onTap: () => _toggleApp(app),
-                      );
-                    },
-                  ),
-                ),
-              ],
+                          IconButton(
+                            tooltip: 'Zatvori',
+                            onPressed: () => Navigator.pop(context),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: ListView.separated(
+                        controller: controller,
+                        itemCount: _installedApps.length,
+                        separatorBuilder: (context, index) =>
+                            const Divider(height: 1, color: Colors.white10),
+                        itemBuilder: (context, index) {
+                          final app = _installedApps[index];
+                          final selected = pickerSelectedPackages.contains(
+                            app.packageName,
+                          );
+                          return ListTile(
+                            selected: selected,
+                            selectedTileColor: const Color(0x1422C55E),
+                            leading: AppIcon(app: app, size: 42),
+                            title: Text(
+                              app.label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: Text(
+                              app.packageName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white38,
+                                fontSize: 12,
+                              ),
+                            ),
+                            trailing: Icon(
+                              selected
+                                  ? Icons.check_circle
+                                  : Icons.radio_button_unchecked,
+                              color: selected
+                                  ? const Color(0xFFD7BE7D)
+                                  : Colors.white30,
+                            ),
+                            onTap: () async {
+                              setPickerState(() {
+                                if (selected) {
+                                  pickerSelectedPackages.remove(
+                                    app.packageName,
+                                  );
+                                } else {
+                                  pickerSelectedPackages.add(app.packageName);
+                                }
+                              });
+                              await _toggleApp(app);
+                              setPickerState(() {
+                                pickerSelectedPackages = Set<String>.from(
+                                  _blockedPackages,
+                                );
+                              });
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                );
+              },
             );
           },
         );
@@ -376,15 +401,6 @@ class _LockinHomePageState extends State<LockinHomePage> {
                               Row(
                                 children: [
                                   const Expanded(child: ArtDecoLine()),
-                                  IconButton.filledTonal(
-                                    tooltip: 'Osvjezi',
-                                    onPressed: _loadState,
-                                    style: IconButton.styleFrom(
-                                      backgroundColor: const Color(0xFF25301F),
-                                      foregroundColor: const Color(0xFFF1E2BE),
-                                    ),
-                                    icon: const Icon(Icons.refresh),
-                                  ),
                                 ],
                               ),
                               const Spacer(),
@@ -504,15 +520,38 @@ class _LockinHomePageState extends State<LockinHomePage> {
                                 onTestModeChanged: _setTestMode,
                               ),
                               const SizedBox(height: 12),
-                              FilledButton.icon(
-                                onPressed: _showAppPicker,
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: const Color(0xFFD7BE7D),
-                                  foregroundColor: const Color(0xFF0B0D10),
-                                  minimumSize: const Size.fromHeight(54),
-                                ),
-                                icon: const Icon(Icons.add),
-                                label: const Text('Dodaj aplikacije'),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: FilledButton.icon(
+                                      onPressed: _showAppPicker,
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor: const Color(
+                                          0xFFD7BE7D,
+                                        ),
+                                        foregroundColor: const Color(
+                                          0xFF0B0D10,
+                                        ),
+                                        minimumSize: const Size.fromHeight(54),
+                                      ),
+                                      icon: const Icon(Icons.add),
+                                      label: const Text('Dodaj aplikacije'),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  IconButton.outlined(
+                                    tooltip: 'Osvjezi aplikacije',
+                                    onPressed: _loadState,
+                                    style: IconButton.styleFrom(
+                                      foregroundColor: const Color(0xFFF1E2BE),
+                                      side: const BorderSide(
+                                        color: Color(0xFF6D5A32),
+                                      ),
+                                      minimumSize: const Size(54, 54),
+                                    ),
+                                    icon: const Icon(Icons.refresh),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
