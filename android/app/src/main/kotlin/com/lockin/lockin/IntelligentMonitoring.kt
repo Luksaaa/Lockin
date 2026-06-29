@@ -7,8 +7,10 @@ class IntelligentMonitoring(private val context: Context) {
     private val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
 
     fun getUsageTime(packageName: String): Long {
+        val prefs = context.getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
+        val windowMs = prefs.getLong(MainActivity.KEY_USAGE_WINDOW_MS, Constants.DEFAULT_USAGE_WINDOW_MS)
         val endTime = System.currentTimeMillis()
-        val startTime = endTime - Constants.USAGE_WINDOW_MS
+        val startTime = endTime - windowMs
         val stats = usageStatsManager.queryAndAggregateUsageStats(startTime, endTime)
         return stats[packageName]?.totalTimeInForeground ?: 0L
     }

@@ -43,11 +43,13 @@ class _LockinHomePageState extends State<LockinHomePage> {
   bool _blockingActive = false;
   int _usageLimitMs = 40 * 60 * 1000;
   int _usageWindowMs = 4 * 60 * 60 * 1000;
+  bool _isTestMode = false;
   String _unlockText = '';
   List<AppInfo> _installedApps = const [];
   Set<String> _blockedPackages = {};
   Map<String, int> _usageByPackage = {};
   Timer? _refreshTimer;
+  OverlayEntry? _messageOverlay;
 
   @override
   void initState() {
@@ -62,6 +64,7 @@ class _LockinHomePageState extends State<LockinHomePage> {
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _messageOverlay?.remove();
     super.dispose();
   }
 
@@ -89,6 +92,7 @@ class _LockinHomePageState extends State<LockinHomePage> {
             (state?['usageLimitMs'] as num?)?.toInt() ?? 40 * 60 * 1000;
         _usageWindowMs =
             (state?['usageWindowMs'] as num?)?.toInt() ?? 4 * 60 * 60 * 1000;
+        _isTestMode = state?['isTestMode'] == true;
         _unlockText = state?['unlockText']?.toString() ?? '';
         _blockedPackages = blocked;
         _usageByPackage = usage;
@@ -138,7 +142,7 @@ class _LockinHomePageState extends State<LockinHomePage> {
   }
 
   Future<void> _setUsageLimitMinutes(int minutes) async {
-    final nextMinutes = minutes.clamp(5, 240);
+    final nextMinutes = minutes.clamp(_isTestMode ? 1 : 5, 240);
     try {
       final result = await _channel.invokeMapMethod<String, dynamic>(
         'setUsageLimit',
@@ -154,11 +158,73 @@ class _LockinHomePageState extends State<LockinHomePage> {
     }
   }
 
+  Future<void> _setTestMode(bool enabled) async {
+    try {
+      final result = await _channel.invokeMapMethod<String, dynamic>(
+        'setTestMode',
+        {'enabled': enabled},
+      );
+      final message = result?['message']?.toString();
+      if (message != null && message.isNotEmpty) {
+        _showMessage(message);
+      }
+      await _loadState();
+    } on PlatformException catch (error) {
+      _showMessage(error.message ?? 'Testni nacin nije promijenjen.');
+    }
+  }
+
   void _showMessage(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(message)));
+    _messageOverlay?.remove();
+    _messageOverlay = OverlayEntry(
+      builder: (context) {
+        return Positioned(
+          top: MediaQuery.of(context).padding.top + 14,
+          left: 24,
+          right: 24,
+          child: IgnorePointer(
+            child: Material(
+              color: Colors.transparent,
+              child: Center(
+                child: Container(
+                  constraints: const BoxConstraints(maxWidth: 420),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF111315),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: const Color(0xFFC9A968)),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x66000000),
+                        blurRadius: 18,
+                        offset: Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: Text(
+                    message,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Color(0xFFF1E2BE),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    Overlay.of(context).insert(_messageOverlay!);
+    Future.delayed(const Duration(seconds: 3), () {
+      _messageOverlay?.remove();
+      _messageOverlay = null;
+    });
   }
 
   void _showAppPicker() {
@@ -259,7 +325,9 @@ class _LockinHomePageState extends State<LockinHomePage> {
         .where((app) => _blockedPackages.contains(app.packageName))
         .toList();
     final usageLimitMinutes = (_usageLimitMs / 60000).round();
-    final usageWindowHours = (_usageWindowMs / 3600000).round();
+    final windowLabel = _usageWindowMs <= 60000
+        ? 'test: 1 minuta'
+        : 'unutar ${(_usageWindowMs / 3600000).round()} sata';
 
     return Scaffold(
       body: SafeArea(
@@ -267,126 +335,161 @@ class _LockinHomePageState extends State<LockinHomePage> {
             ? const Center(child: CircularProgressIndicator())
             : Padding(
                 padding: const EdgeInsets.all(24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TimeLimitControl(
-                            minutes: usageLimitMinutes,
-                            windowHours: usageWindowHours,
-                            enabled: !_blockingActive,
-                            onChanged: _setUsageLimitMinutes,
-                          ),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    return SingleChildScrollView(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minHeight: constraints.maxHeight,
                         ),
-                        const SizedBox(width: 12),
-                        IconButton.filledTonal(
-                          tooltip: 'Osvjezi',
-                          onPressed: _loadState,
-                          icon: const Icon(Icons.refresh),
-                        ),
-                      ],
-                    ),
-                    const Spacer(),
-                    SizedBox(
-                      height: 92,
-                      child: selectedApps.isEmpty
-                          ? const Center(
-                              child: Text(
-                                'Ovdje su blokirane aplikacije',
-                                style: TextStyle(color: Colors.white54),
+                        child: IntrinsicHeight(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Row(
+                                children: [
+                                  const Expanded(child: ArtDecoLine()),
+                                  IconButton.filledTonal(
+                                    tooltip: 'Osvjezi',
+                                    onPressed: _loadState,
+                                    style: IconButton.styleFrom(
+                                      backgroundColor: const Color(0xFF25301F),
+                                      foregroundColor: const Color(0xFFF1E2BE),
+                                    ),
+                                    icon: const Icon(Icons.refresh),
+                                  ),
+                                ],
                               ),
-                            )
-                          : ListView.separated(
-                              scrollDirection: Axis.horizontal,
-                              itemCount: selectedApps.length,
-                              separatorBuilder: (context, index) =>
-                                  const SizedBox(width: 14),
-                              itemBuilder: (context, index) {
-                                final app = selectedApps[index];
-                                final usedMs =
-                                    _usageByPackage[app.packageName] ?? 0;
-                                final minutesLeft =
-                                    ((_usageLimitMs - usedMs).clamp(
-                                              0,
-                                              _usageLimitMs,
-                                            ) /
-                                            60000)
-                                        .floor();
-                                return GestureDetector(
-                                  onTap: () => _toggleApp(app),
-                                  child: SizedBox(
-                                    width: 72,
-                                    child: Column(
-                                      children: [
-                                        AppIcon(app: app, size: 56),
-                                        const SizedBox(height: 6),
-                                        Text(
-                                          '${minutesLeft}m',
+                              const Spacer(),
+                              SizedBox(
+                                height: 92,
+                                child: selectedApps.isEmpty
+                                    ? const Center(
+                                        child: Text(
+                                          'Ovdje su blokirane aplikacije',
                                           style: TextStyle(
-                                            color: minutesLeft > 0
-                                                ? Colors.white54
-                                                : const Color(0xFFEF4444),
-                                            fontSize: 12,
+                                            color: Colors.white54,
                                           ),
                                         ),
-                                      ],
+                                      )
+                                    : ListView.separated(
+                                        scrollDirection: Axis.horizontal,
+                                        itemCount: selectedApps.length,
+                                        separatorBuilder: (context, index) =>
+                                            const SizedBox(width: 14),
+                                        itemBuilder: (context, index) {
+                                          final app = selectedApps[index];
+                                          final usedMs =
+                                              _usageByPackage[app
+                                                  .packageName] ??
+                                              0;
+                                          final minutesLeft =
+                                              ((_usageLimitMs - usedMs).clamp(
+                                                        0,
+                                                        _usageLimitMs,
+                                                      ) /
+                                                      60000)
+                                                  .floor();
+                                          return GestureDetector(
+                                            onTap: () => _toggleApp(app),
+                                            child: SizedBox(
+                                              width: 72,
+                                              child: Column(
+                                                children: [
+                                                  AppIcon(app: app, size: 56),
+                                                  const SizedBox(height: 6),
+                                                  Text(
+                                                    '${minutesLeft}m',
+                                                    style: TextStyle(
+                                                      color: minutesLeft > 0
+                                                          ? Colors.white54
+                                                          : const Color(
+                                                              0xFFEF4444,
+                                                            ),
+                                                      fontSize: 12,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                      ),
+                              ),
+                              const SizedBox(height: 18),
+                              Center(
+                                child: FilledButton(
+                                  style: FilledButton.styleFrom(
+                                    shape: const CircleBorder(),
+                                    fixedSize: const Size(224, 224),
+                                    backgroundColor: _blockingActive
+                                        ? const Color(0xFFB42323)
+                                        : const Color(0xFF1E6B3B),
+                                    side: const BorderSide(
+                                      color: Color(0xFFC9A968),
+                                      width: 2,
                                     ),
                                   ),
-                                );
-                              },
-                            ),
-                    ),
-                    const SizedBox(height: 18),
-                    Center(
-                      child: FilledButton(
-                        style: FilledButton.styleFrom(
-                          shape: const CircleBorder(),
-                          fixedSize: const Size(224, 224),
-                          backgroundColor: _blockingActive
-                              ? const Color(0xFFDC2626)
-                              : const Color(0xFF16A34A),
-                        ),
-                        onPressed: _toggleBlocking,
-                        child: Text(
-                          _blockingActive ? 'OFF' : 'ON',
-                          style: const TextStyle(
-                            fontSize: 44,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0,
+                                  onPressed: _toggleBlocking,
+                                  child: Text(
+                                    _blockingActive ? 'OFF' : 'ON',
+                                    style: const TextStyle(
+                                      fontSize: 44,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 0,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 28),
+                              Text(
+                                _blockingActive
+                                    ? 'STATUS: BLOKIRANJE AKTIVNO'
+                                    : 'STATUS: UGASENO',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: _blockingActive
+                                      ? const Color(0xFFEF4444)
+                                      : const Color(0xFFC9A968),
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                _blockingActive && _unlockText.isNotEmpty
+                                    ? 'Otkljucavanje za: $_unlockText'
+                                    : '${selectedApps.length} odabrano',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: Color(0x73FFFFFF),
+                                ),
+                              ),
+                              const Spacer(),
+                              TimeLimitControl(
+                                minutes: usageLimitMinutes,
+                                windowLabel: windowLabel,
+                                enabled: !_blockingActive,
+                                testMode: _isTestMode,
+                                onChanged: _setUsageLimitMinutes,
+                                onTestModeChanged: _setTestMode,
+                              ),
+                              const SizedBox(height: 12),
+                              FilledButton.icon(
+                                onPressed: _showAppPicker,
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: const Color(0xFFD7BE7D),
+                                  foregroundColor: const Color(0xFF0B0D10),
+                                  minimumSize: const Size.fromHeight(54),
+                                ),
+                                icon: const Icon(Icons.add),
+                                label: const Text('Dodaj aplikacije'),
+                              ),
+                            ],
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 28),
-                    Text(
-                      _blockingActive
-                          ? 'STATUS: BLOKIRANJE AKTIVNO'
-                          : 'STATUS: UGASENO',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: _blockingActive
-                            ? const Color(0xFFEF4444)
-                            : const Color(0xFF22C55E),
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _blockingActive && _unlockText.isNotEmpty
-                          ? 'Otkljucavanje za: $_unlockText'
-                          : '${selectedApps.length} odabrano',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Color(0x73FFFFFF)),
-                    ),
-                    const Spacer(),
-                    FilledButton.icon(
-                      onPressed: _showAppPicker,
-                      icon: const Icon(Icons.add),
-                      label: const Text('Dodaj aplikacije'),
-                    ),
-                  ],
+                    );
+                  },
                 ),
               ),
       ),
@@ -420,72 +523,146 @@ class AppIcon extends StatelessWidget {
 class TimeLimitControl extends StatelessWidget {
   const TimeLimitControl({
     required this.minutes,
-    required this.windowHours,
+    required this.windowLabel,
     required this.enabled,
+    required this.testMode,
     required this.onChanged,
+    required this.onTestModeChanged,
     super.key,
   });
 
   final int minutes;
-  final int windowHours;
+  final String windowLabel;
   final bool enabled;
+  final bool testMode;
   final ValueChanged<int> onChanged;
+  final ValueChanged<bool> onTestModeChanged;
 
   @override
   Widget build(BuildContext context) {
-    final foreground = enabled ? Colors.white : Colors.white38;
+    final foreground = enabled ? const Color(0xFFF1E2BE) : Colors.white38;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFF10151D),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white10),
+        color: const Color(0xFF101113),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: const Color(0xFF6D5A32)),
       ),
-      child: Row(
+      child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          IconButton(
-            tooltip: 'Smanji limit',
-            onPressed: enabled ? () => onChanged(minutes - 5) : null,
-            icon: const Icon(Icons.remove),
-            style: IconButton.styleFrom(
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              minimumSize: const Size(36, 36),
-            ),
-          ),
-          Expanded(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  '$minutes min',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: foreground,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                  ),
+          Row(
+            children: [
+              _LimitIconButton(
+                tooltip: 'Smanji limit',
+                icon: Icons.remove,
+                onPressed: enabled
+                    ? () => onChanged(minutes - (testMode ? 1 : 5))
+                    : null,
+              ),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '$minutes min',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: foreground,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      windowLabel,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  'unutar $windowHours sata',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white54, fontSize: 12),
-                ),
-              ],
-            ),
+              ),
+              _LimitIconButton(
+                tooltip: 'Povecaj limit',
+                icon: Icons.add,
+                onPressed: enabled
+                    ? () => onChanged(minutes + (testMode ? 1 : 5))
+                    : null,
+              ),
+            ],
           ),
-          IconButton(
-            tooltip: 'Povecaj limit',
-            onPressed: enabled ? () => onChanged(minutes + 5) : null,
-            icon: const Icon(Icons.add),
-            style: IconButton.styleFrom(
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              minimumSize: const Size(36, 36),
-            ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  testMode ? 'Testni nacin ukljucen' : 'Normalni nacin',
+                  style: const TextStyle(color: Colors.white60, fontSize: 12),
+                ),
+              ),
+              Switch(
+                value: testMode,
+                onChanged: enabled ? onTestModeChanged : null,
+                activeThumbColor: const Color(0xFFD7BE7D),
+                activeTrackColor: const Color(0xFF4B3F25),
+              ),
+            ],
           ),
         ],
       ),
+    );
+  }
+}
+
+class _LimitIconButton extends StatelessWidget {
+  const _LimitIconButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      icon: Icon(icon),
+      style: IconButton.styleFrom(
+        foregroundColor: const Color(0xFFF1E2BE),
+        disabledForegroundColor: Colors.white24,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        minimumSize: const Size(42, 42),
+      ),
+    );
+  }
+}
+
+class ArtDecoLine extends StatelessWidget {
+  const ArtDecoLine({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(child: Container(height: 1, color: const Color(0xFF6D5A32))),
+        Container(
+          width: 8,
+          height: 8,
+          margin: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            border: Border.all(color: const Color(0xFFC9A968)),
+            shape: BoxShape.circle,
+          ),
+        ),
+        Expanded(child: Container(height: 1, color: const Color(0xFF6D5A32))),
+      ],
     );
   }
 }

@@ -45,6 +45,9 @@ class MainActivity : FlutterActivity() {
         if (!prefs.contains(KEY_USAGE_LIMIT_MS)) {
             prefs.edit { putLong(KEY_USAGE_LIMIT_MS, Constants.DEFAULT_USAGE_LIMIT_MS) }
         }
+        if (!prefs.contains(KEY_USAGE_WINDOW_MS)) {
+            prefs.edit { putLong(KEY_USAGE_WINDOW_MS, Constants.DEFAULT_USAGE_WINDOW_MS) }
+        }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -56,6 +59,7 @@ class MainActivity : FlutterActivity() {
                 "toggleBlockedApp" -> toggleBlockedApp(call, result)
                 "toggleBlocking" -> toggleBlocking(result)
                 "setUsageLimit" -> setUsageLimit(call, result)
+                "setTestMode" -> setTestMode(call, result)
                 else -> result.notImplemented()
             }
         }
@@ -77,7 +81,8 @@ class MainActivity : FlutterActivity() {
             "blockedPackages" to blockedPackages.toList(),
             "usageByPackage" to usageByPackage,
             "usageLimitMs" to prefs.getLong(KEY_USAGE_LIMIT_MS, Constants.DEFAULT_USAGE_LIMIT_MS),
-            "usageWindowMs" to Constants.USAGE_WINDOW_MS,
+            "usageWindowMs" to prefs.getLong(KEY_USAGE_WINDOW_MS, Constants.DEFAULT_USAGE_WINDOW_MS),
+            "isTestMode" to (prefs.getLong(KEY_USAGE_WINDOW_MS, Constants.DEFAULT_USAGE_WINDOW_MS) == Constants.TEST_USAGE_WINDOW_MS),
             "unlockText" to getUnlockText(prefs.getLong(KEY_ACTIVATION_ELAPSED, 0L)),
             "permissions" to mapOf(
                 "usageAccess" to isUsageAccessGranted(),
@@ -125,6 +130,23 @@ class MainActivity : FlutterActivity() {
 
         prefs.edit { putStringSet(KEY_BLOCKED_PACKAGES, blockedPackages) }
         result.success(mapOf("message" to ""))
+    }
+
+    private fun setTestMode(call: MethodCall, result: MethodChannel.Result) {
+        val enabled = call.argument<Boolean>("enabled") ?: false
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(KEY_BLOCKING_ACTIVE, false)) {
+            result.success(mapOf("message" to "Testni nacin mozes promijeniti kada blokiranje nije aktivno."))
+            return
+        }
+
+        prefs.edit {
+            putLong(
+                KEY_USAGE_WINDOW_MS,
+                if (enabled) Constants.TEST_USAGE_WINDOW_MS else Constants.DEFAULT_USAGE_WINDOW_MS
+            )
+        }
+        result.success(mapOf("message" to if (enabled) "Testni nacin: prozor je 1 minuta." else "Normalni nacin: prozor je 4 sata."))
     }
 
     private fun setUsageLimit(call: MethodCall, result: MethodChannel.Result) {
@@ -177,7 +199,8 @@ class MainActivity : FlutterActivity() {
         } else {
             val activationElapsed = prefs.getLong(KEY_ACTIVATION_ELAPSED, 0L)
             val elapsed = (SystemClock.elapsedRealtime() - activationElapsed).coerceAtLeast(0L)
-            if (elapsed < Constants.USAGE_WINDOW_MS) {
+            val windowMs = prefs.getLong(KEY_USAGE_WINDOW_MS, Constants.DEFAULT_USAGE_WINDOW_MS)
+            if (elapsed < windowMs) {
                 result.success(mapOf("message" to "Limit jos nije istekao."))
                 return
             }
@@ -213,7 +236,8 @@ class MainActivity : FlutterActivity() {
     private fun getUnlockText(activationElapsed: Long): String {
         if (activationElapsed <= 0L) return ""
         val elapsed = (SystemClock.elapsedRealtime() - activationElapsed).coerceAtLeast(0L)
-        val remaining = Constants.USAGE_WINDOW_MS - elapsed
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val remaining = prefs.getLong(KEY_USAGE_WINDOW_MS, Constants.DEFAULT_USAGE_WINDOW_MS) - elapsed
         if (remaining <= 0L) return ""
         val hours = TimeUnit.MILLISECONDS.toHours(remaining)
         val minutes = TimeUnit.MILLISECONDS.toMinutes(remaining) % 60
@@ -276,5 +300,6 @@ class MainActivity : FlutterActivity() {
         const val KEY_BLOCKING_ACTIVE = "is_blocking_active"
         const val KEY_ACTIVATION_ELAPSED = "block_activation_elapsed"
         const val KEY_USAGE_LIMIT_MS = "usage_limit_ms"
+        const val KEY_USAGE_WINDOW_MS = "usage_window_ms"
     }
 }
